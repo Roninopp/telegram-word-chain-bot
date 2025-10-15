@@ -1,7 +1,7 @@
 import os
 import logging
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 # Enable logging
 logging.basicConfig(
@@ -36,7 +36,6 @@ class WordChainGame:
     def play_word(self, word):
         word = word.lower().strip()
         
-        # Check if word is valid
         if len(word) < 2:
             return False, "Word must be at least 2 letters long!"
         
@@ -46,16 +45,14 @@ class WordChainGame:
         if self.last_letter and not word.startswith(self.last_letter):
             return False, f"Word must start with '{self.last_letter}'!"
         
-        # Valid word
         self.used_words.add(word)
         self.last_letter = word[-1] if word[-1] not in ['a', 'e', 'i', 'o', 'u'] else word[-2]
         self.current_player = (self.current_player + 1) % len(self.players)
         
         return True, f"✅ Valid word! Next player: {self.players[self.current_player]}"
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a message when the command /start is issued."""
-    await update.message.reply_text(
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text(
         'Welcome to Word Chain Game! 🎮\n\n'
         'Commands:\n'
         '/join - Join the game\n'
@@ -64,8 +61,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         '/status - Show current game status'
     )
 
-async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Join the game."""
+def join(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
     player_name = update.effective_user.first_name
     
@@ -75,26 +71,25 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game = games[chat_id]
     
     if game.started:
-        await update.message.reply_text("Game has already started! Wait for the next round.")
+        update.message.reply_text("Game has already started! Wait for the next round.")
         return
     
     if game.add_player(player_name):
-        await update.message.reply_text(f"✅ {player_name} joined the game! Players: {', '.join(game.players)}")
+        update.message.reply_text(f"✅ {player_name} joined the game! Players: {', '.join(game.players)}")
     else:
-        await update.message.reply_text(f"⚠️ {player_name}, you're already in the game!")
+        update.message.reply_text(f"⚠️ {player_name}, you're already in the game!")
 
-async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start the game."""
+def start_game(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
     
     if chat_id not in games or len(games[chat_id].players) < 2:
-        await update.message.reply_text("Need at least 2 players to start! Use /join to join.")
+        update.message.reply_text("Need at least 2 players to start! Use /join to join.")
         return
     
     game = games[chat_id]
     game.start_game()
     
-    await update.message.reply_text(
+    update.message.reply_text(
         f"🎮 Game Started! 🎮\n\n"
         f"Players: {', '.join(game.players)}\n"
         f"First word can be anything!\n"
@@ -102,13 +97,11 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Type a word to begin!"
     )
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle regular messages as word submissions."""
+def handle_message(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
     player_name = update.effective_user.first_name
     word = update.message.text
     
-    # Ignore command messages
     if word.startswith('/'):
         return
     
@@ -117,16 +110,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     game = games[chat_id]
     
-    # Check if it's the player's turn
     if player_name != game.players[game.current_player]:
-        await update.message.reply_text(f"⚠️ It's {game.players[game.current_player]}'s turn!")
+        update.message.reply_text(f"⚠️ It's {game.players[game.current_player]}'s turn!")
         return
     
     success, message = game.play_word(word)
-    await update.message.reply_text(message)
+    update.message.reply_text(message)
 
-async def show_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show game rules."""
+def show_rules(update: Update, context: CallbackContext):
     rules = """
 📖 WORD CHAIN GAME RULES:
 
@@ -138,14 +129,13 @@ async def show_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Example: apple → elephant → tiger → rabbit
     """
-    await update.message.reply_text(rules)
+    update.message.reply_text(rules)
 
-async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show current game status."""
+def show_status(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
     
     if chat_id not in games:
-        await update.message.reply_text("No active game in this chat. Use /join to start!")
+        update.message.reply_text("No active game in this chat. Use /join to start!")
         return
     
     game = games[chat_id]
@@ -161,31 +151,30 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Words used: {len(game.used_words)}"
         )
     
-    await update.message.reply_text(status)
+    update.message.reply_text(status)
 
 def main():
-    """Start the bot."""
-    # Get token from environment variable
     TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
     
     if not TOKEN:
         logger.error("Please set TELEGRAM_BOT_TOKEN environment variable")
         return
     
-    # Create application
-    application = Application.builder().token(TOKEN).build()
+    # Use Updater instead of Application for older versions
+    updater = Updater(TOKEN)
+    dispatcher = updater.dispatcher
     
     # Add handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("join", join))
-    application.add_handler(CommandHandler("startgame", start_game))
-    application.add_handler(CommandHandler("rules", show_rules))
-    application.add_handler(CommandHandler("status", show_status))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("join", join))
+    dispatcher.add_handler(CommandHandler("startgame", start_game))
+    dispatcher.add_handler(CommandHandler("rules", show_rules))
+    dispatcher.add_handler(CommandHandler("status", show_status))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
     
-    # Start the Bot
     logger.info("Bot is starting...")
-    application.run_polling()
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == '__main__':
     main()
